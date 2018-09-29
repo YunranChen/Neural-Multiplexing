@@ -1,0 +1,185 @@
+---
+title: "newton"
+author: "YunranChen"
+date: "5/10/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("statmod")
+library(purrr)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(tidyr)
+theme_set(theme_bw())
+library(rbenchmark)
+```
+
+## create dataset
+
+```{r}
+rm(list=ls())
+N=100
+## create LP_PR data
+load("gq_LP_log_seed1_n25_N100_x30.RData")
+alldata=df%>%
+  mutate(n=25)%>%
+  select(logpy,method,niter,n,true,estimate)
+load("gq_LP_log_seed1_n50_N100_x30.RData")
+alldata=rbind(alldata,df%>%
+                mutate(n=50)%>%
+  select(logpy,method,niter,n,true,estimate))
+load("gq_LP_log_seed1_n100_N100_x30.RData")
+alldata=rbind(alldata,df%>%
+                mutate(n=100)%>%
+  select(logpy,method,niter,n,true,estimate))
+save(alldata,file = "gq_LP_PR_ALL_seed1.RData")
+```
+
+
+
+## load data
+```{r}
+rm(list=ls())
+load("gq_LP_PR_ALL.RData")
+```
+
+
+## plot
+
+```{r}
+ggdf=alldata%>%
+  mutate(log_py=logpy)%>%
+  select(-niter,-logpy)%>%
+  arrange(method,n,true,estimate,log_py)%>%
+  mutate(x=rep(1:100,108))
+png(filename = 'all_n25.png',width = 2696, height = 1666, units = "px")
+ggplot(data = ggdf%>%filter(n==25),mapping = aes(x = x,y = log_py,color=method,shape=estimate))+geom_point(alpha=0.6,size=10)+facet_wrap(~true)+ggtitle("n=25")+ theme(legend.text=element_text(size=30),plot.title=element_text(size=30))
+dev.off()
+png(filename = 'all_n50.png',width = 2696, height = 1666, units = "px")
+ggplot(data = ggdf%>%filter(n==50),mapping = aes(x = x,y = log_py,color=method,shape=estimate))+geom_point(alpha=0.6,size=10)+facet_wrap(~true)+ggtitle("n=50")+ theme(legend.text=element_text(size=30),plot.title=element_text(size=30))
+dev.off()
+#ggplot(data = ggdf%>%filter(n==200,method=="PPR"),mapping = aes(x = x,y = log_py,color=method,shape=estimate))+geom_point(alpha=0.5)+facet_wrap(~true)
+true_dist=c("int","mix","outA","outB","sinA","sinB")
+for (k in 1:6){
+png(filename = paste0(true_dist[k],'_n25.png'),width = 2696, height = 1666, units = "px")
+p1=ggplot(data = ggdf%>%filter(n==25,true==true_dist[k]),mapping = aes(x = x,y = log_py,color=method,shape=estimate))+geom_point(alpha=0.6,size=10)+ggtitle(paste0("n=25,true=",true_dist[k]))+ theme(legend.text=element_text(size=30),plot.title=element_text(size=30))
+print(p1)
+dev.off()
+png(filename = paste0(true_dist[k],'_n50.png'),width = 2696, height = 1666, units = "px")
+p2=ggplot(data = ggdf%>%filter(n==50,true==true_dist[k]),mapping = aes(x = x,y = log_py,color=method,shape=estimate))+geom_point(alpha=0.6,size=10)+ggtitle(paste0("n=50,true=",true_dist[k]))+ theme(legend.text=element_text(size=30),plot.title=element_text(size=30))
+print(p2)
+dev.off()
+}
+
+```
+
+## Calculate mse
+
+```{r}
+
+dfv=ggdf
+t1=dfv%>%
+  spread(.,method,log_py)%>%
+  mutate(diffsq_lp_ppr=(LP_PPR-PPR)^2,diffsq_gq_ppr=(GQ_PR-PPR)^2,diffsq_lpe_ppr=(LP_PPR_e-PPR)^2)%>%
+  select(diffsq_lp_ppr,diffsq_gq_ppr,diffsq_lpe_ppr)%>%
+  map_dbl(.,~mean(.x,na.rm=T))
+
+t2=dfv%>%
+  spread(.,method,log_py)%>%
+  mutate(diffsq_lp_ppr=(LP_PPR-PPR)^2,diffsq_gq_ppr=(GQ_PR-PPR)^2,diffsq_lpe_ppr=(LP_PPR_e-PPR)^2)%>%
+  select(-x,-LP_PPR,-GQ_PR,-PPR,-LP_PPR_e)%>%
+  group_by(.,n)%>%
+  summarise(.,mse_lp=mean(diffsq_lp_ppr,na.rm=T),mse_gq=mean(diffsq_gq_ppr,na.rm=T),mse_lpe=mean(diffsq_lpe_ppr,na.rm=T))
+
+t3=dfv%>%
+  spread(.,method,log_py)%>%
+  mutate(diffsq_lp_ppr=(LP_PPR-PPR)^2,diffsq_gq_ppr=(GQ_PR-PPR)^2,diffsq_lpe_ppr=(LP_PPR_e-PPR)^2)%>%
+  select(-x,-LP_PPR,-GQ_PR,-PPR,-LP_PPR_e)%>%
+  group_by(.,n,true)%>%
+  summarise(.,mse_lp=mean(diffsq_lp_ppr,na.rm=T),mse_gq=mean(diffsq_gq_ppr,na.rm=T),mse_lpe=mean(diffsq_lpe_ppr,na.rm=T))
+
+t4=dfv%>%
+  spread(.,method,log_py)%>%
+  mutate(diffsq_lp_ppr=(LP_PPR-PPR)^2,diffsq_gq_ppr=(GQ_PR-PPR)^2,diffsq_lpe_ppr=(LP_PPR_e-PPR)^2)%>%
+  select(-x,-LP_PPR,-GQ_PR,-PPR,-LP_PPR_e)%>%
+  group_by(.,n,true,estimate)%>%
+  summarise(.,mse_lp=mean(diffsq_lp_ppr,na.rm=T),mse_gq=mean(diffsq_gq_ppr,na.rm=T),mse_lpe=mean(diffsq_lpe_ppr,na.rm=T))
+
+write.csv(t1,"mse_total.csv")
+write.csv(t2,"mse_n.csv")
+write.csv(t3,"mse_n_true.csv")
+write.csv(t4,"mse_n_true_estimate.csv")
+```
+
+## Calculate BF
+
+
+```{r}
+
+bench=dfv%>%
+  spread(.,method,log_py)%>%
+  filter(true==estimate)%>%
+  arrange(n,true,estimate,x)
+lp=bench%>%pull(LP_PPR)%>%rep(.,each=6)
+lpe=bench%>%pull(LP_PPR_e)
+lpe[201:600]=bench%>%pull(LP_PPR)%>%.[201:600]
+lpe[801:1200]=bench%>%pull(LP_PPR)%>%.[801:1200]
+lpe=rep(lpe,each=6)
+gq=bench%>%pull(GQ_PR)%>%rep(.,each=6)
+ppr=bench%>%pull(PPR)%>%rep(.,each=6)
+
+bf=dfv%>%
+  spread(.,method,log_py)%>%
+  arrange(n,true,estimate,x)%>%
+  mutate(BF_LP=lp-LP_PPR,BF_LPe=lpe-LP_PPR_e,BF_GQ=gq-GQ_PR,BF_PPR=ppr-PPR)%>%
+  select(-x,-LP_PPR,-LP_PPR_e,-GQ_PR,-PPR)%>%
+  gather(.,method,BF,-true,-estimate,-n)%>%
+  mutate(BF=exp(BF))%>%
+  filter(method!="BF_LPe")%>%
+  #filter(estimate%in%c("mix","int"))%>%
+  group_by(.,n,true,estimate,method)%>%
+  #summarise(.,BF1=mean(BF>1),BF3=mean(BF>3),BF20=mean(BF>20),BF150=mean(BF>150))%>%
+  summarise(.,BF1=mean(BF>1,na.rm=T),BF3=mean(BF>3,na.rm=T),BF20=mean(BF>20,na.rm=T),BF150=mean(BF>150,na.rm=T))%>%
+  filter(true!=estimate)
+write.csv(bf,file = "BF_without_e.csv")
+
+```
+
+```{r}
+gq1=exp(gq)
+aaa=dfv%>%filter(method=="GQ")%>%
+  mutate(py=exp(log_py))%>%
+  select(-log_py,-method)%>%
+  mutate(BF=gq1/py)%>%
+  group_by(.,n,true,estimate)%>%
+  summarise(.,BF1=mean(BF>1,na.rm=T),BF3=mean(BF>3,na.rm=T),BF20=mean(BF>20,na.rm=T),BF150=mean(BF>150,na.rm=T))%>%
+  filter(true!=estimate)
+  write.csv(aaa,file = "BF_gq.csv")
+```
+
+
+## calculate BF: for gq_LP
+
+```{r}
+
+bench=dfv%>%
+  filter(true==estimate)%>%
+  arrange(n,true,estimate,x)
+lp=bench%>%pull(log_py)%>%rep(.,each=6)
+
+bf=dfv%>%
+  arrange(n,true,estimate,x)%>%
+  mutate(BF_LP=lp-log_py)%>%
+  select(-x,-log_py)%>%
+  #gather(.,method,BF,-true,-estimate,-n)%>%
+  mutate(BF=exp(BF_LP))%>%
+  group_by(.,n,true,estimate,method)%>%
+  summarise(.,BF1=mean(BF>1,na.rm=T),BF3=mean(BF>3,na.rm=T),BF20=mean(BF>20,na.rm=T),BF150=mean(BF>150,na.rm=T))%>%
+  filter(true!=estimate)
+write.csv(bf,file = "BF_without_e_seed1.csv")
+
+```
+
